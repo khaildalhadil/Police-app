@@ -74,7 +74,7 @@ body{margin:0;font-family:var(--font);font-size:15px;line-height:1.6;color:var(-
 .search-row select{width:150px;flex:none}
 .search-input{position:relative;flex:1;min-width:0}
 .search-input .icon{position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
-.search-input input{padding-right:40px}
+.search-input input[type=search]{padding-right:40px}
 .results-head{font-size:12.5px;font-weight:700;color:var(--muted);margin:12px 2px 6px}
 .results-head:empty{display:none}
 .results{flex:1;max-height:214px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin-top:10px}
@@ -343,7 +343,7 @@ body:not([data-mode="view"]) .view-only{display:none !important}
           </select>
           <div class="search-input">
             <svg class="icon"><use href="#i-search"/></svg>
-            <input type="search" id="searchInput" placeholder="ابحث برقم الوثيقة أو الاسم أو رقم القضية أو الهاتف..." autocomplete="off">
+            <input type="search" id="searchInput" placeholder="ابحث بالاسم أو رقم الوثيقة أو القضية..." autocomplete="off">
           </div>
         </div>
         <div class="results-head" id="resultsHead"></div>

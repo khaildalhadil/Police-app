@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { fmtDate } from "@/lib/util";
+import type { Case, Person } from "@/lib/store";
+import { addDays, dueOf, fmtDate, todayStr } from "@/lib/util";
 import { Icon } from "./icon";
 
 export type DueItem = {
@@ -16,6 +17,26 @@ export type DueItem = {
   cls: string;
   label: string;
 };
+
+export function dueItems(cases: Case[], persons: Map<string, Person>): DueItem[] {
+  const limit = addDays(todayStr(), 7);
+  return cases
+    .flatMap((c) =>
+      c.appointments
+        .filter((a) => a.alert && a.date && a.date <= limit)
+        .map((a) => ({
+          caseId: c.id!,
+          caseNo: c.caseNo,
+          name: persons.get(c.civilId)?.name ?? "",
+          type: a.type,
+          date: a.date,
+          time: a.time,
+          notes: a.notes,
+          ...dueOf(a.date),
+        })),
+    )
+    .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+}
 
 // جرس التنبيه: appointments with the alert on, from overdue up to a week ahead.
 export function Bell({ items, onOpen }: { items: DueItem[]; onOpen: (caseId: number) => void }) {

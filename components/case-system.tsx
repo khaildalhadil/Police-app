@@ -18,12 +18,10 @@ import { logout } from "@/app/actions";
 import logo from "@/public/rop-logo.jpg";
 import * as store from "@/lib/store";
 import {
-  addDays,
   ageFrom,
   daysBetween,
   daysText,
   downloadBlob,
-  dueOf,
   errMsg,
   fmtDate,
   fmtDateTime,
@@ -35,14 +33,14 @@ import {
   todayStr,
 } from "@/lib/util";
 import { AttachmentsTable, hasFiles, type AttRow } from "./attachments-table";
-import { Bell, type DueItem } from "./bell";
+import { Bell, dueItems } from "./bell";
 import { useConfirm, useToasts } from "./feedback";
 import { Icon } from "./icon";
 import { RowTable, type Column } from "./row-table";
+import { Sidebar } from "./sidebar";
 
 const DOC_TYPES = ["التحقيق", "الترحيل", "الأمانات", "الحجز", "الإفراج", "أمر ندب", "أمر استدعاء", "أمر تفريغ هاتف", "رسالة بشرية", "أخرى"];
 const APPT_TYPES = ["تمديد الحجز", "الإفراج", "المستشفى", "المحكمة", "النيابة العامة", "القضاء العسكري", "أخرى"];
-const RELATIONS = ["الأب", "الأم", "الأخ", "الأخت", "الزوج", "الزوجة", "الابن", "الابنة", "قريب", "صديق", "محامٍ"];
 const NATIONALITIES = ["عماني", "إماراتي", "سعودي", "كويتي", "بحريني", "قطري", "يمني", "هندي", "باكستاني", "بنغلاديشي", "نيبالي", "سريلانكي", "فلبيني", "إندونيسي", "مصري", "سوداني", "أردني", "سوري", "لبناني", "عراقي", "إيراني", "أفغاني", "إثيوبي", "صومالي", "كيني", "تنزاني", "أوغندي"];
 const GOVERNORATES: Record<string, string[]> = {
   "محافظة مسقط": ["مسقط", "مطرح", "بوشر", "السيب", "العامرات", "قريات"],
@@ -83,13 +81,11 @@ const CASE_FIELDS = ["caseNo", "charge", "verdict", "extensionDate", "detentionD
 type Mode = "new" | "view" | "edit";
 type Row = { key: number; error?: string };
 type ApptRow = store.Appointment & Row;
-type ContactRow = store.Contact & Row;
 
 let seq = 0;
 const nextKey = () => ++seq;
 const withKeys = <T extends object>(rows: T[]) => rows.map((r) => ({ ...r, key: nextKey() }));
 const blankAppt = (): ApptRow => ({ key: nextKey(), type: "", date: "", time: "", notes: "", alert: true });
-const blankContact = (): ContactRow => ({ key: nextKey(), name: "", phone: "", relation: "", at: "", location: "", answered: "" });
 const blankAtt = (): AttRow => ({ key: nextKey(), type: "", fileName: "", fileType: "", size: 0, blob: null });
 
 const APPT_COLUMNS: Column<ApptRow>[] = [
@@ -99,40 +95,12 @@ const APPT_COLUMNS: Column<ApptRow>[] = [
   { key: "notes", label: "ملاحظات / المكان" },
   { key: "alert", label: "التنبيه", type: "check" },
 ];
-const CONTACT_COLUMNS: Column<ContactRow>[] = [
-  { key: "name", label: "الاسم الثلاثي" },
-  { key: "phone", label: "رقم الهاتف", type: "tel" },
-  { key: "relation", label: "الصلة", list: "dl-rel" },
-  { key: "at", label: "التاريخ والوقت", type: "datetime-local" },
-  { key: "location", label: "موقع المطلوب" },
-  { key: "answered", label: "الرد", type: "select", options: ["رد", "لم يرد"] },
-];
 
 const pick = <K extends string>(src: Partial<Record<K, unknown>> | undefined, keys: readonly K[]) =>
   Object.fromEntries(keys.map((k) => [k, String(src?.[k] ?? "").trim()])) as Record<K, string>;
 
 // A row counts as filled once any of its own fields is set (the alert box is on by default).
 const filled = (r: object) => Object.entries(r).some(([k, v]) => !["key", "error", "alert"].includes(k) && v);
-
-function dueItems(cases: store.Case[], persons: Map<string, store.Person>): DueItem[] {
-  const limit = addDays(todayStr(), 7);
-  return cases
-    .flatMap((c) =>
-      c.appointments
-        .filter((a) => a.alert && a.date && a.date <= limit)
-        .map((a) => ({
-          caseId: c.id!,
-          caseNo: c.caseNo,
-          name: persons.get(c.civilId)?.name ?? "",
-          type: a.type,
-          date: a.date,
-          time: a.time,
-          notes: a.notes,
-          ...dueOf(a.date),
-        })),
-    )
-    .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
-}
 
 function BlobImg({ blob, alt }: { blob: Blob; alt: string }) {
   const ref = useCallback(
@@ -155,17 +123,17 @@ export default function CaseSystem() {
   const [ready, setReady] = useState(false);
   const [persons, setPersons] = useState(() => new Map<string, store.Person>());
   const [cases, setCases] = useState<store.Case[]>([]);
+  const [unanswered, setUnanswered] = useState(0);
   const [usage, setUsage] = useState("");
 
   const [mode, setMode] = useState<Mode>("new");
   const [current, setCurrent] = useState<store.Case | null>(null);
-  // Whose photo and contacts are in the form, so a civil number that belongs to someone
+  // Whose photo and basic data are in the form, so a civil number that belongs to someone
   // else is never saved over them.
   const [loadedCivilId, setLoadedCivilId] = useState("");
   const [form, setForm] = useState<Form>(EMPTY);
   const [photo, setPhoto] = useState<Blob | null>(null);
   const [appts, setAppts] = useState<ApptRow[]>([]);
-  const [contacts, setContacts] = useState<ContactRow[]>([]);
   const [atts, setAtts] = useState<AttRow[]>(() => [blankAtt()]);
   const [errors, setErrors] = useState<Partial<Record<FieldName, string>>>({});
   const [dirty, setDirty] = useState(false);
@@ -183,6 +151,7 @@ export default function CaseSystem() {
     const d = await store.loadAll();
     setPersons(d.persons);
     setCases(d.cases);
+    setUnanswered(d.contacts.filter((c) => c.answered === "لم يرد").length);
     navigator.storage
       ?.estimate?.()
       .then((e) => e.usage != null && setUsage(`المساحة المستخدمة: ${fmtSize(e.usage)}`))
@@ -226,15 +195,14 @@ export default function CaseSystem() {
     });
   }, [records, query, searchField]);
   const stats = useMemo(() => {
-    const s = { detained: 0, released: 0, pending: 0, noAnswer: 0 };
+    const s = { detained: 0, released: 0, pending: 0 };
     for (const c of cases) {
       const k = statusOf(c).key;
       if (k !== "none") s[k]++;
       s.pending += c.attachments.filter((a) => !a.blob).length;
     }
-    persons.forEach((p) => (s.noAnswer += p.contacts.filter((x) => x.answered === "لم يرد").length));
     return s;
-  }, [cases, persons]);
+  }, [cases]);
 
   // Ctrl+S, the unsaved-changes warning and print time read the latest state through a ref.
   const latest = useRef({ mode, dirty, save });
@@ -299,7 +267,6 @@ export default function CaseSystem() {
   function fill(c: store.Case, p: store.Person | undefined) {
     setForm({ ...pick(p, PERSON_FIELDS), ...pick(c, CASE_FIELDS), civilId: c.civilId });
     setPhoto(p?.photo ?? null);
-    setContacts(withKeys(p?.contacts ?? []));
     setAppts(withKeys(c.appointments));
     setAtts(withKeys(c.attachments));
     setCurrent(c);
@@ -312,7 +279,6 @@ export default function CaseSystem() {
     setForm(EMPTY);
     setPhoto(null);
     setAppts([]);
-    setContacts([]);
     setAtts([blankAtt()]);
     setCurrent(null);
     setLoadedCivilId("");
@@ -370,7 +336,7 @@ export default function CaseSystem() {
     const last = !cases.some((c) => c.id !== id && c.civilId === current.civilId);
     const ok = await confirm(
       `هل أنت متأكد من حذف القضية رقم «${current.caseNo}» الخاصة بـ «${persons.get(current.civilId)?.name ?? ""}» مع جميع مواعيدها ومرفقاتها؟` +
-        (last ? " ولأنها آخر قضية لهذا الشخص ستُحذف أيضاً بياناته وصورته وسجل المتصلين بهم." : "") +
+        (last ? " ولأنها آخر قضية لهذا الشخص ستُحذف أيضاً بياناته وصورته." : "") +
         " لا يمكن التراجع عن هذه العملية.",
       { title: "تأكيد الحذف", okText: "نعم، احذف", danger: true },
     );
@@ -400,7 +366,6 @@ export default function CaseSystem() {
   function loadPerson(p: store.Person) {
     setForm((f) => ({ ...f, ...pick(p, PERSON_FIELDS) }));
     setPhoto(p.photo);
-    setContacts(withKeys(p.contacts));
     setLoadedCivilId(p.civilId);
     setDirty(true);
     toast(`الرقم المدني مسجل مسبقاً باسم «${p.name}» — تم تحميل بياناته الأساسية`, "info", 5000);
@@ -453,11 +418,9 @@ export default function CaseSystem() {
       errs.releaseDate = "تاريخ الإفراج لا يمكن أن يسبق تاريخ الحجز";
 
     const a2 = appts.map((a) => ({ ...a, error: filled(a) && (!a.type || !a.date) ? "حدد نوع الموعد وتاريخه" : "" }));
-    const c2 = contacts.map((c) => ({ ...c, error: filled(c) && !c.name.trim() ? "الاسم الثلاثي مطلوب" : "" }));
     const t2 = atts.map((a) => ({ ...a, error: a.blob && !a.type ? "يرجى تحديد نوع المستند" : "" }));
     setErrors(errs);
     setAppts(a2);
-    setContacts(c2);
     setAtts(t2);
 
     const first = Object.keys(errs)[0];
@@ -468,13 +431,13 @@ export default function CaseSystem() {
       toast("يرجى تصحيح الحقول المظللة باللون الأحمر", "error");
       return null;
     }
-    const badTable = [a2, c2, t2].findIndex((rows) => rows.some((r) => r.error));
+    const badTable = [a2, t2].findIndex((rows) => rows.some((r) => r.error));
     if (badTable >= 0) {
-      document.getElementById(["appointments", "contacts", "attachments"][badTable])?.scrollIntoView({ block: "start", behavior: "smooth" });
+      document.getElementById(["appointments", "attachments"][badTable])?.scrollIntoView({ block: "start", behavior: "smooth" });
       toast("يرجى إكمال بيانات الصفوف المظللة باللون الأحمر", "error");
       return null;
     }
-    return { civil, appts: a2, contacts: c2, atts: t2 };
+    return { civil, appts: a2, atts: t2 };
   }
 
   async function save() {
@@ -501,7 +464,6 @@ export default function CaseSystem() {
       ...pick(form, PERSON_FIELDS),
       civilId: v.civil,
       photo,
-      contacts: v.contacts.filter(filled).map((c) => ({ ...pick(c, ["name", "phone", "relation", "at", "location", "answered"]) })),
       createdAt: known?.createdAt || now,
       updatedAt: now,
     };
@@ -561,7 +523,7 @@ export default function CaseSystem() {
         { title: "استيراد نسخة احتياطية", okText: "استيراد" },
       );
       if (!ok) return;
-      await store.importBackup(data.persons, data.cases);
+      await store.importBackup(data.persons, data.cases, data.contacts);
       const d = await reload();
       const c = mode === "view" ? d.cases.find((x) => x.id === current?.id) : undefined;
       if (c) fill(c, d.persons.get(c.civilId));
@@ -619,7 +581,6 @@ export default function CaseSystem() {
   const filesIn = atts.filter((a) => a.blob);
   const pendingDocs = atts.filter((a) => a.type && !a.blob).length;
   const filesSize = filesIn.reduce((s, a) => s + (a.size || 0), 0);
-  const noAnswer = contacts.filter((c) => c.answered === "لم يرد").length;
 
   const field = (
     name: FieldName,
@@ -653,29 +614,7 @@ export default function CaseSystem() {
 
   return (
     <div className="shell">
-      <aside className="sidebar">
-        <p className="side-head">القائمة الرئيسية</p>
-        <a href="#case" className="side-link active">
-          <Icon name="file-plus" /> إدارة القضايا
-        </a>
-        <a href="#appointments" className="side-link">
-          <Icon name="bell" /> المواعيد والتنبيه
-          {due.length > 0 && <span className="side-count">{due.length}</span>}
-        </a>
-        <a href="#contacts" className="side-link">
-          <Icon name="phone" /> المتصلين بهم
-        </a>
-        <a href="#attachments" className="side-link">
-          <Icon name="archive" /> مرفقات القضية
-        </a>
-        <a href="#records" className="side-link">
-          <Icon name="list" /> سجل القضايا
-        </a>
-        <p className="side-head">الحساب</p>
-        <button type="button" className="side-link" onClick={signOut}>
-          <Icon name="logout" /> تسجيل الخروج
-        </button>
-      </aside>
+      <Sidebar active="cases" dueCount={due.length} onLogout={signOut} />
 
       <div className="page">
         <main className="card main-card" id="case" data-mode={mode}>
@@ -931,27 +870,6 @@ export default function CaseSystem() {
               <span>المواعيد المفعّل تنبيهها تظهر في جرس التنبيه قبل موعدها بأسبوع، وتبقى فيه إذا تأخرت حتى يُلغى تنبيهها.</span>
             </div>
 
-            <div className="section-head" id="contacts">
-              <h2 className="section-title">المتصلين بهم</h2>
-              {!ro && (
-                <button type="button" className="btn btn-success" onClick={() => addRow(setContacts, blankContact())}>
-                  <Icon name="plus" /> إضافة متصل
-                </button>
-              )}
-            </div>
-            <RowTable
-              rows={contacts}
-              columns={CONTACT_COLUMNS}
-              readOnly={ro}
-              empty={ro ? "لا يوجد متصلين بهم" : "لا يوجد متصلين بهم — اضغط «إضافة متصل»"}
-              rowClass={(r) => (r.answered === "لم يرد" ? "row-warn" : "")}
-              {...rowsApi(setContacts)}
-            />
-            <div className="att-foot">
-              <span>{noAnswer ? `بانتظار معاودة الاتصال: ${noAnswer}` : ""}</span>
-              <span>سجل المتصلين مرتبط بالشخص ويظهر في جميع قضاياه · من «لم يرد» يظهر بلون مميز لمعاودة الاتصال به</span>
-            </div>
-
             <div className="section-head" id="attachments">
               <h2 className="section-title">جدول مرفقات القضية</h2>
               {!ro && (
@@ -1061,10 +979,10 @@ export default function CaseSystem() {
               <b>{stats.pending}</b>
               <span>مستندات بانتظار الإرفاق</span>
             </div>
-            <div className="stat warn">
-              <b>{stats.noAnswer}</b>
+            <a href="/contacts" className="stat warn" title="فتح سجل المتصلين بهم">
+              <b>{unanswered}</b>
               <span>متصلون لم يردوا</span>
-            </div>
+            </a>
           </div>
           <div className="table-wrap">
             <table className="rec-table">
@@ -1149,11 +1067,6 @@ export default function CaseSystem() {
             </option>
           )),
         )}
-      </datalist>
-      <datalist id="dl-rel">
-        {RELATIONS.map((r) => (
-          <option key={r} value={r} />
-        ))}
       </datalist>
       {toastView}
       {confirmView}

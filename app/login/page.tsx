@@ -15,22 +15,18 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
 
   return (
     <main className="login-page">
-      <div className="login-card">
-        <section className="login-brand">
-          <div className="login-emblem">
-            <Image src={logo} alt="شعار شرطة عمان السلطانية" priority />
-          </div>
-          <h2>شرطة عُمان السلطانية</h2>
-          <p className="login-en">ROYAL OMAN POLICE</p>
-          <div className="login-line" />
-          <p className="login-system">نظام إدارة بيانات القضايا والوثائق</p>
-        </section>
+      <div className="login-box">
+        <div className="login-emblem">
+          <Image src={logo} alt="شعار شرطة عمان السلطانية" priority />
+        </div>
+        <p className="login-en">ROYAL OMAN POLICE</p>
+        <h1>شرطة عُمان السلطانية</h1>
+        <p className="login-system">نظام إدارة بيانات القضايا والوثائق</p>
 
         <form className="login-form" action={login}>
-          <h1>
-            <Icon name="login" /> تسجيل الدخول
-          </h1>
-          <p className="muted">أدخل بياناتك للوصول إلى النظام</p>
+          <p className="login-hint">
+            <Icon name="lock" /> سجّل الدخول للمتابعة
+          </p>
           {e && (
             <p className="login-error" role="alert">
               اسم المستخدم أو كلمة المرور غير صحيحة
@@ -58,6 +54,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           </button>
         </form>
       </div>
+      <p className="login-foot">نظام داخلي — للاستخدام الرسمي فقط</p>
     </main>
   );
 }

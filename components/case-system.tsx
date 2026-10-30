@@ -16,6 +16,7 @@ import {
 import { flushSync } from "react-dom";
 import { logout } from "@/app/actions";
 import logo from "@/public/rop-logo.jpg";
+import { NATIONALITIES } from "@/lib/lists";
 import * as store from "@/lib/store";
 import {
   ageFrom,
@@ -41,7 +42,6 @@ import { Sidebar } from "./sidebar";
 
 const DOC_TYPES = ["التحقيق", "الترحيل", "الأمانات", "الحجز", "الإفراج", "أمر ندب", "أمر استدعاء", "أمر تفريغ هاتف", "رسالة بشرية", "أخرى"];
 const APPT_TYPES = ["تمديد الحجز", "الإفراج", "المستشفى", "المحكمة", "النيابة العامة", "القضاء العسكري", "أخرى"];
-const NATIONALITIES = ["عماني", "إماراتي", "سعودي", "كويتي", "بحريني", "قطري", "يمني", "هندي", "باكستاني", "بنغلاديشي", "نيبالي", "سريلانكي", "فلبيني", "إندونيسي", "مصري", "سوداني", "أردني", "سوري", "لبناني", "عراقي", "إيراني", "أفغاني", "إثيوبي", "صومالي", "كيني", "تنزاني", "أوغندي"];
 const GOVERNORATES: Record<string, string[]> = {
   "محافظة مسقط": ["مسقط", "مطرح", "بوشر", "السيب", "العامرات", "قريات"],
   "محافظة ظفار": ["صلالة", "طاقة", "مرباط", "رخيوت", "ثمريت", "ضلكوت", "المزيونة", "مقشن", "شليم وجزر الحلانيات", "سدح"],
@@ -194,14 +194,19 @@ export default function CaseSystem() {
       return keys.some((k) => norm(hay[k]).includes(q));
     });
   }, [records, query, searchField]);
+  // People, not cases: someone with two cases is one detainee.
   const stats = useMemo(() => {
-    const s = { detained: 0, released: 0, pending: 0 };
+    const detained = new Set<string>();
+    const released = new Set<string>();
+    let pending = 0;
     for (const c of cases) {
       const k = statusOf(c).key;
-      if (k !== "none") s[k]++;
-      s.pending += c.attachments.filter((a) => !a.blob).length;
+      if (k === "detained") detained.add(c.civilId);
+      else if (k === "released") released.add(c.civilId);
+      pending += c.attachments.filter((a) => !a.blob).length;
     }
-    return s;
+    detained.forEach((id) => released.delete(id)); // still held on another case
+    return { detained: detained.size, released: released.size, pending };
   }, [cases]);
 
   // Ctrl+S, the unsaved-changes warning and print time read the latest state through a ref.
@@ -363,20 +368,19 @@ export default function CaseSystem() {
     toast("تم نسخ البيانات الأساسية للمتهم — أدخل بيانات القضية الجديدة", "info");
   }
 
-  function loadPerson(p: store.Person) {
-    setForm((f) => ({ ...f, ...pick(p, PERSON_FIELDS) }));
-    setPhoto(p.photo);
-    setLoadedCivilId(p.civilId);
-    setDirty(true);
-    toast(`الرقم المدني مسجل مسبقاً باسم «${p.name}» — تم تحميل بياناته الأساسية`, "info", 5000);
-  }
+  // A civil number belongs to one person: a new record may not reuse it. Another case for the
+  // same person goes through «قضية جديدة لنفس المتهم», which keeps loadedCivilId.
+  const duplicateError = (civil: string) =>
+    civil && civil !== loadedCivilId && cases.some((c) => c.civilId === civil && c.id !== current?.id)
+      ? `الرقم المدني مسجل مسبقاً باسم «${persons.get(civil)?.name ?? ""}» — لإضافة قضية له افتح سجله واختر «قضية جديدة لنفس المتهم»`
+      : "";
 
   function onCivilBlur() {
     if (ro) return;
     const id = toLatinDigits(form.civilId).trim();
     if (id !== form.civilId) setField("civilId", id);
-    const p = persons.get(id);
-    if (p && id !== loadedCivilId) loadPerson(p);
+    const err = duplicateError(id);
+    if (err) setErrors((e) => ({ ...e, civilId: err }));
   }
 
   function pickPhoto(file?: File) {
@@ -408,6 +412,7 @@ export default function CaseSystem() {
     const civil = toLatinDigits(f.civilId).trim();
     if (!civil) errs.civilId = "هذا الحقل مطلوب";
     else if (!/^\d{4,15}$/.test(civil)) errs.civilId = "الرقم المدني يتكون من أرقام فقط";
+    else if (duplicateError(civil)) errs.civilId = duplicateError(civil);
     if (!f.name.trim()) errs.name = "هذا الحقل مطلوب";
     if (f.dob && f.dob > t) errs.dob = "تاريخ الميلاد لا يمكن أن يكون في المستقبل";
     if (f.phone.trim() && !/^\+?[\d\s-]{6,20}$/.test(toLatinDigits(f.phone.trim()))) errs.phone = "رقم الهاتف غير صحيح — أرقام فقط";
@@ -445,10 +450,6 @@ export default function CaseSystem() {
     const v = validate();
     if (!v) return;
     const known = persons.get(v.civil);
-    if (known && v.civil !== loadedCivilId) {
-      loadPerson(known); // never save this form's person over someone already registered
-      return;
-    }
     const dup = cases.find((c) => c.id !== current?.id && c.civilId === v.civil && norm(c.caseNo) === norm(form.caseNo));
     if (
       dup &&

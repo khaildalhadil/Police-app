@@ -5,12 +5,12 @@ import { blobToDataURL, dataURLToBlob, toLatinDigits } from "./util";
 export type Appointment = { type: string; date: string; time: string; notes: string; alert: boolean };
 export type Attachment = { type: string; fileName: string; fileType: string; size: number; blob: Blob | null };
 
-// المتصلين بهم: a register of its own. civilId and wantedName say which wanted person the
+// المتصلين بهم: a register of its own. civilId and nationality describe the wanted person the
 // call was about.
 export type Contact = {
   id?: number;
   civilId: string;
-  wantedName: string;
+  nationality: string;
   name: string;
   phone: string;
   relation: string;
@@ -182,7 +182,7 @@ function toContact(r: Raw): Contact {
   return {
     ...(typeof r.id === "number" && { id: r.id }),
     civilId: toLatinDigits(r.civilId).trim(),
-    wantedName: str(r.wantedName),
+    nationality: str(r.nationality),
     name: str(r.name),
     phone: str(r.phone),
     relation: str(r.relation),
@@ -197,7 +197,7 @@ function toContact(r: Raw): Contact {
 // Version 2 kept contacts inside each person; each one becomes a register entry about them.
 function contactsOf(p: Raw) {
   return list<Raw>(p.contacts).map((c) =>
-    toContact({ ...c, civilId: p.civilId, wantedName: p.name, createdAt: p.updatedAt, updatedAt: p.updatedAt }),
+    toContact({ ...c, civilId: p.civilId, nationality: p.nationality, createdAt: p.updatedAt, updatedAt: p.updatedAt }),
   );
 }
 

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent a
 import { flushSync } from "react-dom";
 import { logout } from "@/app/actions";
 import logo from "@/public/rop-logo.jpg";
+import { NATIONALITIES } from "@/lib/lists";
 import * as store from "@/lib/store";
 import { errMsg, fmtDateTime, norm, pad, toLatinDigits } from "@/lib/util";
 import { dueItems } from "./bell";
@@ -15,7 +16,7 @@ import { Sidebar } from "./sidebar";
 const SELF = "الشخص نفسه";
 const RELATIONS = [SELF, "الأب", "الأم", "الأخ", "الأخت", "الزوج", "الزوجة", "الابن", "الابنة", "قريب", "صديق", "محامٍ"];
 
-const EMPTY = { civilId: "", wantedName: "", name: "", phone: "", relation: "", at: "", location: "", answered: "" };
+const EMPTY = { civilId: "", nationality: "", name: "", phone: "", relation: "", at: "", location: "", answered: "" };
 type Form = typeof EMPTY;
 type FieldName = keyof Form;
 type Mode = "new" | "view" | "edit";
@@ -71,9 +72,12 @@ export default function ContactsPage() {
       .filter(
         (c) =>
           (answer === "all" || c.answered === answer) &&
-          (!q || [c.civilId, c.wantedName, c.name, c.phone, c.relation, c.location].some((v) => norm(v).includes(q))),
+          (!q ||
+            [c.civilId, persons.get(c.civilId)?.name, c.nationality, c.name, c.phone, c.relation, c.location].some((v) =>
+              norm(v).includes(q),
+            )),
       );
-  }, [contacts, query, answer]);
+  }, [contacts, persons, query, answer]);
   const unanswered = contacts.filter((c) => c.answered === "لم يرد").length;
 
   // Ctrl+S, the unsaved-changes warning and print time read the latest state through a ref.
@@ -105,8 +109,9 @@ export default function ContactsPage() {
   function setField(name: FieldName, value: string) {
     setForm((f) => {
       const next = { ...f, [name]: value };
-      // «الشخص نفسه»: the caller is the wanted person
-      if (name === "relation" && value === SELF && !f.name.trim()) next.name = f.wantedName;
+      // «الشخص نفسه»: the person contacted is the wanted person
+      const wanted = persons.get(toLatinDigits(f.civilId).trim());
+      if (name === "relation" && value === SELF && !f.name.trim() && wanted) next.name = wanted.name;
       return next;
     });
     setErrors((e) => (e[name] ? { ...e, [name]: undefined } : e));
@@ -117,7 +122,7 @@ export default function ContactsPage() {
     if (ro) return;
     const id = toLatinDigits(form.civilId).trim();
     const p = persons.get(id);
-    setForm((f) => ({ ...f, civilId: id, wantedName: p ? p.name : f.wantedName }));
+    setForm((f) => ({ ...f, civilId: id, nationality: p?.nationality || f.nationality }));
   }
 
   function fill(c: store.Contact) {
@@ -322,10 +327,10 @@ export default function ContactsPage() {
                 onBlur: onCivilBlur,
                 hint: known && !ro ? `مسجل في النظام باسم «${known.name}»` : "",
               })}
-              {field("wantedName", "اسم المطلوب")}
+              {field("nationality", "الجنسية", { list: "dl-nat" })}
             </div>
 
-            <h2 className="section-title">بيانات المتصل</h2>
+            <h2 className="section-title">بيانات المتصل بهم</h2>
             <div className="grid3">
               {field("name", "الاسم الثلاثي", { req: true })}
               {field("phone", "رقم الهاتف", { type: "tel" })}
@@ -374,7 +379,7 @@ export default function ContactsPage() {
             <div className="save-wrap">
               <button type="submit" form="contactForm" className="btn btn-primary btn-lg" disabled={ro || saving}>
                 <Icon name="save" className={saving ? "spin" : undefined} />
-                <span>{saving ? "جاري الحفظ..." : "حفظ بيانات المتصل"}</span>
+                <span>{saving ? "جاري الحفظ..." : "حفظ بيانات المتصل بهم"}</span>
               </button>
               {!ro && (
                 <div className="shortcut">
@@ -423,6 +428,7 @@ export default function ContactsPage() {
                 <tr>
                   <th className="col-n">ت</th>
                   <th>المطلوب</th>
+                  <th>الجنسية</th>
                   <th>الاسم الثلاثي</th>
                   <th>الصلة</th>
                   <th>رقم الهاتف</th>
@@ -434,7 +440,7 @@ export default function ContactsPage() {
               <tbody>
                 {rows.length === 0 ? (
                   <tr className="empty-row">
-                    <td colSpan={8}>
+                    <td colSpan={9}>
                       {contacts.length ? "لا توجد نتائج مطابقة" : "لا يوجد متصلين بهم بعد — سجّل أول متصل من النموذج أعلاه"}
                     </td>
                   </tr>
@@ -450,14 +456,10 @@ export default function ContactsPage() {
                     >
                       <td className="col-n">{i + 1}</td>
                       <td>
-                        {c.wantedName || "—"}
-                        {c.civilId && (
-                          <span className="muted">
-                            {" "}
-                            · <bdi>{c.civilId}</bdi>
-                          </span>
-                        )}
+                        {c.civilId ? <bdi>{c.civilId}</bdi> : "—"}
+                        {persons.get(c.civilId) && <span className="muted"> · {persons.get(c.civilId)!.name}</span>}
                       </td>
+                      <td>{c.nationality || "—"}</td>
                       <td>
                         <b>{c.name}</b>
                       </td>
@@ -492,6 +494,11 @@ export default function ContactsPage() {
       <datalist id="dl-rel">
         {RELATIONS.map((r) => (
           <option key={r} value={r} />
+        ))}
+      </datalist>
+      <datalist id="dl-nat">
+        {NATIONALITIES.map((n) => (
+          <option key={n} value={n} />
         ))}
       </datalist>
       {toastView}

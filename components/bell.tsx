@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Case, Person } from "@/lib/store";
+import type { AllData } from "@/lib/store";
 import { addDays, dueOf, fmtDate, todayStr } from "@/lib/util";
 import { Icon } from "./icon";
 
+// A case appointment (opened by caseId) or a prisoner's end date (opened by href).
 export type DueItem = {
-  caseId: number;
+  caseId?: number;
+  href?: string;
   caseNo: string;
   name: string;
   type: string;
@@ -18,27 +20,39 @@ export type DueItem = {
   label: string;
 };
 
-export function dueItems(cases: Case[], persons: Map<string, Person>): DueItem[] {
+export function dueItems({ cases, persons, prisoners }: Pick<AllData, "cases" | "persons" | "prisoners">): DueItem[] {
   const limit = addDays(todayStr(), 7);
-  return cases
-    .flatMap((c) =>
-      c.appointments
-        .filter((a) => a.alert && a.date && a.date <= limit)
-        .map((a) => ({
-          caseId: c.id!,
-          caseNo: c.caseNo,
-          name: persons.get(c.civilId)?.name ?? "",
-          type: a.type,
-          date: a.date,
-          time: a.time,
-          notes: a.notes,
-          ...dueOf(a.date),
-        })),
-    )
-    .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  const appointments = cases.flatMap((c) =>
+    c.appointments
+      .filter((a) => a.alert && a.date && a.date <= limit)
+      .map((a) => ({
+        caseId: c.id!,
+        caseNo: c.caseNo,
+        name: persons.get(c.civilId)?.name ?? "",
+        type: a.type,
+        date: a.date,
+        time: a.time,
+        notes: a.notes,
+        ...dueOf(a.date),
+      })),
+  );
+  const endings = prisoners
+    .filter((p) => p.alert && p.endDate && p.endDate <= limit)
+    .map((p) => ({
+      href: `/prisoners?open=${p.id}`,
+      caseNo: p.caseType,
+      name: p.name,
+      type: "انتهاء الحبس",
+      date: p.endDate,
+      time: "",
+      notes: p.place,
+      ...dueOf(p.endDate),
+    }));
+  return [...appointments, ...endings].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 }
 
-// جرس التنبيه: appointments with the alert on, from overdue up to a week ahead.
+// جرس التنبيه: appointments and prisoners' end dates with the alert on, from overdue up to a
+// week ahead.
 export function Bell({ items, onOpen }: { items: DueItem[]; onOpen: (caseId: number) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -85,14 +99,20 @@ export function Bell({ items, onOpen }: { items: DueItem[]; onOpen: (caseId: num
                 className="bell-item"
                 onClick={() => {
                   setOpen(false);
-                  onOpen(i.caseId);
+                  if (i.href) window.location.assign(i.href);
+                  else onOpen(i.caseId!);
                 }}
               >
                 <span className={`due ${i.cls}`}>{i.label}</span>
                 <span>
                   <b>موعد {i.type}</b> — {i.name}
                   <small>
-                    قضية <bdi>{i.caseNo}</bdi> · {fmtDate(i.date)}
+                    {i.caseNo && (
+                      <>
+                        قضية <bdi>{i.caseNo}</bdi> ·{" "}
+                      </>
+                    )}
+                    {fmtDate(i.date)}
                     {i.time && ` · ${i.time}`}
                     {i.notes && ` · ${i.notes}`}
                   </small>

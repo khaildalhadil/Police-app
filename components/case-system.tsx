@@ -123,6 +123,7 @@ export default function CaseSystem() {
   const [ready, setReady] = useState(false);
   const [persons, setPersons] = useState(() => new Map<string, store.Person>());
   const [cases, setCases] = useState<store.Case[]>([]);
+  const [prisoners, setPrisoners] = useState<store.Prisoner[]>([]);
   const [unanswered, setUnanswered] = useState(0);
   const [usage, setUsage] = useState("");
 
@@ -151,6 +152,7 @@ export default function CaseSystem() {
     const d = await store.loadAll();
     setPersons(d.persons);
     setCases(d.cases);
+    setPrisoners(d.prisoners);
     setUnanswered(d.contacts.filter((c) => c.answered === "لم يرد").length);
     navigator.storage
       ?.estimate?.()
@@ -166,7 +168,7 @@ export default function CaseSystem() {
       .openDB(() => toast("نافذة أخرى من النظام مفتوحة — أغلقها لإكمال تحديث قاعدة البيانات", "warn", 10000))
       .then(reload)
       .then((d) => {
-        const n = dueItems(d.cases, d.persons).filter((i) => i.n <= 0).length;
+        const n = dueItems(d).filter((i) => i.n <= 0).length;
         if (n) toast(`لديك ${n} ${n === 1 ? "موعد مستحق" : "مواعيد مستحقة"} اليوم أو متأخرة — راجع جرس التنبيه`, "warn", 7000);
       })
       .catch((e) => toast("تعذر فتح قاعدة البيانات المحلية: " + errMsg(e), "error", 8000))
@@ -177,7 +179,7 @@ export default function CaseSystem() {
     () => cases.map((c) => ({ c, p: persons.get(c.civilId) })).sort((a, b) => b.c.updatedAt.localeCompare(a.c.updatedAt)),
     [cases, persons],
   );
-  const due = useMemo(() => dueItems(cases, persons), [cases, persons]);
+  const due = useMemo(() => dueItems({ cases, persons, prisoners }), [cases, persons, prisoners]);
   const results = useMemo(() => {
     const q = norm(query);
     if (!q) return records.slice(0, 6);
@@ -520,11 +522,11 @@ export default function CaseSystem() {
     try {
       const data = await store.readBackup(file);
       const ok = await confirm(
-        `سيتم استيراد ${data.cases.length} قضية من النسخة الاحتياطية. القضايا التي لها نفس المعرّف والأشخاص بنفس الرقم المدني سيتم استبدالهم بالنسخة المستوردة. هل تريد المتابعة؟`,
+        `سيتم استيراد ${data.cases.length} قضية و${data.contacts.length} متصل و${data.prisoners.length} سجين و${data.leaves.length} إجازة من النسخة الاحتياطية. السجلات التي لها نفس المعرّف والأشخاص بنفس الرقم المدني سيتم استبدالهم بالنسخة المستوردة. هل تريد المتابعة؟`,
         { title: "استيراد نسخة احتياطية", okText: "استيراد" },
       );
       if (!ok) return;
-      await store.importBackup(data.persons, data.cases, data.contacts);
+      await store.importBackup(data);
       const d = await reload();
       const c = mode === "view" ? d.cases.find((x) => x.id === current?.id) : undefined;
       if (c) fill(c, d.persons.get(c.civilId));

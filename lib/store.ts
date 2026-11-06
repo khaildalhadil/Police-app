@@ -21,6 +21,37 @@ export type Contact = {
   updatedAt: string;
 };
 
+// السجناء. alert is "1" while the end date should show in the bell.
+export type Prisoner = {
+  id?: number;
+  name: string;
+  caseType: string;
+  place: string;
+  jailDate: string;
+  endDate: string;
+  alert: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// الإجازات الإدارية (behind the supervisor's password). taken is every day deducted so far, so
+// the remaining days are balance − taken.
+export type Leave = {
+  id?: number;
+  militaryNo: string;
+  name: string;
+  balance: string;
+  taken: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// The registers that each have a page of their own.
+export type RegisterName = "contacts" | "prisoners" | "leaves";
+export type Rec = { id?: number; createdAt: string; updatedAt: string; [field: string]: unknown };
+
 // الأشخاص: the civil number is the primary key.
 export type Person = {
   civilId: string;
@@ -54,7 +85,7 @@ export type Case = {
 
 // Same name as the old single-page app, so records saved there open here (see migrateV1).
 const DB_NAME = "rop-case-system";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 let opening: Promise<IDBDatabase> | null = null;
 
@@ -72,8 +103,12 @@ export function openDB(onBlocked?: () => void) {
         cases.createIndex("civilId", "civilId");
         if (e.oldVersion === 1) migrateV1(tx);
       }
-      db.createObjectStore("contacts", { keyPath: "id", autoIncrement: true });
-      if (e.oldVersion === 2) migrateV2(tx);
+      if (e.oldVersion < 3) {
+        db.createObjectStore("contacts", { keyPath: "id", autoIncrement: true });
+        if (e.oldVersion === 2) migrateV2(tx);
+      }
+      db.createObjectStore("prisoners", { keyPath: "id", autoIncrement: true });
+      db.createObjectStore("leaves", { keyPath: "id", autoIncrement: true });
     };
     req.onblocked = () => onBlocked?.();
     req.onsuccess = () => {
@@ -104,14 +139,19 @@ const result = <T>(r: IDBRequest<T>) =>
   });
 
 export async function loadAll() {
-  const tx = (await openDB()).transaction(["persons", "cases", "contacts"]);
-  const [persons, cases, contacts] = await Promise.all([
-    result(tx.objectStore("persons").getAll() as IDBRequest<Person[]>),
-    result(tx.objectStore("cases").getAll() as IDBRequest<Case[]>),
-    result(tx.objectStore("contacts").getAll() as IDBRequest<Contact[]>),
+  const tx = (await openDB()).transaction(["persons", "cases", "contacts", "prisoners", "leaves"]);
+  const all = <T>(name: string) => result(tx.objectStore(name).getAll() as IDBRequest<T[]>);
+  const [persons, cases, contacts, prisoners, leaves] = await Promise.all([
+    all<Person>("persons"),
+    all<Case>("cases"),
+    all<Contact>("contacts"),
+    all<Prisoner>("prisoners"),
+    all<Leave>("leaves"),
   ]);
-  return { persons: new Map(persons.map((p) => [p.civilId, p])), cases, contacts };
+  return { persons: new Map(persons.map((p) => [p.civilId, p])), cases, contacts, prisoners, leaves };
 }
+
+export type AllData = Awaited<ReturnType<typeof loadAll>>;
 
 // Deletes the person once they have no cases left. Runs inside the caller's transaction.
 function dropIfOrphan(tx: IDBTransaction, civilId: string) {
@@ -142,16 +182,16 @@ export async function deleteCase(id: number) {
   await done(tx);
 }
 
-export async function saveContact(contact: Contact) {
-  const tx = (await openDB()).transaction("contacts", "readwrite");
-  const put = tx.objectStore("contacts").put(contact);
+export async function saveRecord(register: RegisterName, rec: Rec) {
+  const tx = (await openDB()).transaction(register, "readwrite");
+  const put = tx.objectStore(register).put(rec);
   await done(tx);
   return put.result as number;
 }
 
-export async function deleteContact(id: number) {
-  const tx = (await openDB()).transaction("contacts", "readwrite");
-  tx.objectStore("contacts").delete(id);
+export async function deleteRecord(register: RegisterName, id: number) {
+  const tx = (await openDB()).transaction(register, "readwrite");
+  tx.objectStore(register).delete(id);
   await done(tx);
 }
 
@@ -192,6 +232,18 @@ function toContact(r: Raw): Contact {
     createdAt: str(r.createdAt),
     updatedAt: str(r.updatedAt),
   };
+}
+
+const PRISONER_FIELDS = ["name", "caseType", "place", "jailDate", "endDate", "alert", "notes"];
+const LEAVE_FIELDS = ["militaryNo", "name", "balance", "taken", "notes"];
+
+function pickRecord<T>(r: Raw, fields: string[]) {
+  return {
+    ...(typeof r.id === "number" && { id: r.id }),
+    ...Object.fromEntries(fields.map((k) => [k, str(r[k])])),
+    createdAt: str(r.createdAt),
+    updatedAt: str(r.updatedAt),
+  } as T;
 }
 
 // Version 2 kept contacts inside each person; each one becomes a register entry about them.
@@ -264,7 +316,7 @@ function migrateV2(tx: IDBTransaction) {
 }
 
 export async function exportBackup() {
-  const { persons, cases, contacts } = await loadAll();
+  const { persons, cases, contacts, prisoners, leaves } = await loadAll();
   const data = {
     app: DB_NAME,
     version: DB_VERSION,
@@ -281,6 +333,8 @@ export async function exportBackup() {
       })),
     ),
     contacts,
+    prisoners,
+    leaves,
   };
   return new Blob([JSON.stringify(data)], { type: "application/json" });
 }
@@ -304,20 +358,21 @@ export async function readBackup(file: File) {
 
   if (Array.isArray(data.records)) {
     const { persons, cases } = splitLegacy((data.records as Raw[]).map(withFiles));
-    return { persons: [...persons.values()], cases, contacts: [] };
+    return { persons: [...persons.values()], cases, contacts: [], prisoners: [], leaves: [] };
   }
   const persons = list<Raw>(data.persons);
   return {
     persons: persons.map((p) => toPerson(withFiles(p))),
     cases: list<Raw>(data.cases).map((c) => toCase(withFiles(c), str(c.civilId))),
     contacts: [...list<Raw>(data.contacts).map(toContact), ...persons.flatMap(contactsOf)],
+    prisoners: list<Raw>(data.prisoners).map((r) => pickRecord<Prisoner>(r, PRISONER_FIELDS)),
+    leaves: list<Raw>(data.leaves).map((r) => pickRecord<Leave>(r, LEAVE_FIELDS)),
   };
 }
 
-export async function importBackup(persons: Person[], cases: Case[], contacts: Contact[]) {
-  const tx = (await openDB()).transaction(["persons", "cases", "contacts"], "readwrite");
-  persons.forEach((p) => tx.objectStore("persons").put(p));
-  cases.forEach((c) => tx.objectStore("cases").put(c));
-  contacts.forEach((c) => tx.objectStore("contacts").put(c));
+export async function importBackup(data: Awaited<ReturnType<typeof readBackup>>) {
+  const names = ["persons", "cases", "contacts", "prisoners", "leaves"] as const;
+  const tx = (await openDB()).transaction([...names], "readwrite");
+  for (const name of names) for (const r of data[name] as object[]) tx.objectStore(name).put(r);
   await done(tx);
 }

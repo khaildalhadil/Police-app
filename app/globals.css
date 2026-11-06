@@ -348,20 +348,28 @@ input[type=checkbox]:disabled{cursor:default}
 .badge.answered{background:var(--success-soft);border-color:#bfe3cb;color:var(--success)}
 .badge.unanswered{background:var(--warn-soft);border-color:#f1d9a6;color:var(--warn)}
 .rec-table tr.row-warn td{background:var(--warn-soft)}
-.contacts-list .tools{align-items:center}
-.contacts-list .search-input{flex:none;width:260px}
-.contacts-list .tools select{width:150px;min-height:44px}
+.register-list .tools{align-items:center}
+.register-list .search-input{flex:none;width:260px}
+.register-list .tools select{width:150px;min-height:44px}
 a.stat{color:inherit;text-decoration:none;transition:border-color .15s}
 a.stat:hover,a.stat:focus-visible{border-color:var(--navy-3);outline:none}
 .print-head b{display:block;font-size:16px}
 @media print{
-  .contacts-form,.no-print{display:none !important}
-  .contacts-list .print-head{display:flex !important;align-items:center;gap:14px;margin-bottom:12px;padding-bottom:10px;border-bottom:2px solid #999}
-  .contacts-list .rec-table{min-width:0}
-  .contacts-list .rec-table td,.contacts-list .rec-table th{padding:6px 8px;font-size:11.5px;white-space:normal}
+  .register-form,.no-print{display:none !important}
+  .register-list .print-head{display:flex !important;align-items:center;gap:14px;margin-bottom:12px;padding-bottom:10px;border-bottom:2px solid #999}
+  .register-list .rec-table{min-width:0}
+  .register-list .rec-table td,.register-list .rec-table th{padding:6px 8px;font-size:11.5px;white-space:normal}
   .rec-table tr.row-warn td{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
 @media (max-width:620px){
-  .contacts-list .search-input{flex:1 1 100%;width:auto}
-  .contacts-list .tools select{flex:1}
+  .register-list .search-input{flex:1 1 100%;width:auto}
+  .register-list .tools select{flex:1}
 }
+
+/* ===== Registers: prisoners, leaves ===== */
+.badge.soon{background:var(--warn-soft);border-color:#f1d9a6;color:var(--warn)}
+.check-line{display:flex;align-items:center;gap:10px;min-height:44px;margin-top:30px;font-size:14px;font-weight:700;color:#2a3a54;cursor:pointer}
+[data-mode="view"] .check-line{cursor:default}
+.login-back{display:inline-block;margin-top:18px;color:var(--navy-2);font-size:14px;font-weight:700}
+@media (max-width:620px){.check-line{margin-top:0}}
+.field input.computed{background:var(--field-ro);border-color:transparent;font-weight:800;color:var(--navy);cursor:default}

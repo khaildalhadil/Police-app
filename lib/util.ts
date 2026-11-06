@@ -21,6 +21,9 @@ export const norm = (s: unknown) =>
 export const todayStr = (d = new Date()) =>
   `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
+// «now» in the format a datetime-local input takes
+export const nowLocal = (d = new Date()) => `${todayStr(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
 export const addDays = (v: string, n: number) => {
   const [y, m, d] = v.split("-").map(Number);
   return todayStr(new Date(y, m - 1, d + n));
